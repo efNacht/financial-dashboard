@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% set active_page = 'upload' %}
+{% block title %}Загрузка отчётов{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Загрузка отчётов</h1>
+  <p class="subtitle">Загрузите xlsx-файлы бухгалтерской отчётности. Формат имени файла: <code>КОМПАНИЯ_ГОД.xlsx</code></p>
+</div>
+
+<div class="upload-zone" id="drop-zone">
+  <div class="upload-icon">📂</div>
+  <p class="upload-text">Перетащите файлы сюда или <label for="file-input" class="upload-link">выберите</label></p>
+  <p class="upload-hint">Поддерживаются .xlsx файлы отчётности БФО</p>
+  <input type="file" id="file-input" multiple accept=".xlsx" hidden>
+</div>
+
+<div id="upload-results" class="upload-results" style="display:none">
+  <h3>Результаты загрузки</h3>
+  <div id="results-list"></div>
+</div>
+
+<div class="section-block">
+  <div class="section-header">
+    <h2>Загруженные отчёты ({{ reports|length }})</h2>
+  </div>
+  {% if reports %}
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Компания</th>
+          <th>Код</th>
+          <th>Год</th>
+          <th>Файл</th>
+          <th>Дата загрузки</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reports %}
+        <tr>
+          <td>{{ r.full_name }}</td>
+          <td><code>{{ r.short_code }}</code></td>
+          <td>{{ r.year }}</td>
+          <td>{{ r.filename }}</td>
+          <td>{{ r.uploaded_at[:16] if r.uploaded_at else '' }}</td>
+          <td><button class="btn-small btn-danger" onclick="deleteReport('{{ r.short_code }}', {{ r.year }})">Удалить</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">Нет загруженных отчётов. Загрузите xlsx-файлы выше.</p>
+  {% endif %}
+</div>
+
+<div class="section-block">
+  <h2>Известные компании</h2>
+  <p class="subtitle">При загрузке файла код компании определяется автоматически из имени файла.</p>
+  <div class="company-codes">
+    {% for c in companies %}
+    <span class="code-badge"><code>{{ c.short_code }}</code> — {{ c.full_name }}</span>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const resultsDiv = document.getElementById('upload-results');
+const resultsList = document.getElementById('results-list');
+
+['dragenter','dragover'].forEach(e => {
+  dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.add('drag-over'); });
+});
+['dragleave','drop'].forEach(e => {
+  dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.remove('drag-over'); });
+});
+
+dropZone.addEventListener('drop', e => uploadFiles(e.dataTransfer.files));
+fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
+
+async function uploadFiles(files) {
+  if (!files.length) return;
+  dropZone.classList.add('uploading');
+  dropZone.querySelector('.upload-text').textContent = 'Загрузка и обработка...';
+
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+
+  try {
+    const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+    const data = await resp.json();
+    showResults(data.results);
+  } catch (e) {
+    showResults([{ file: 'Ошибка', status: 'error', message: e.message }]);
+  }
+
+  dropZone.classList.remove('uploading');
+  dropZone.querySelector('.upload-text').innerHTML = 'Перетащите файлы сюда или <label for="file-input" class="upload-link">выберите</label>';
+}
+
+function showResults(results) {
+  resultsDiv.style.display = 'block';
+  resultsList.innerHTML = results.map(r => {
+    if (r.status === 'ok') {
+      const rev = (r.revenue / 1000).toFixed(0);
+      return `<div class="result-item ok">✓ <b>${r.file}</b> → ${r.company} (${r.year}), выручка: ${Number(rev).toLocaleString('ru')} млн</div>`;
+    } else {
+      return `<div class="result-item error">✗ <b>${r.file}</b>: ${r.message}</div>`;
+    }
+  }).join('');
+  setTimeout(() => location.reload(), 2000);
+}
+
+async function deleteReport(code, year) {
+  if (!confirm('Удалить отчёт?')) return;
+  await fetch('/api/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ short_code: code, year: year })
+  });
+  location.reload();
+}
+</script>
+{% endblock %}

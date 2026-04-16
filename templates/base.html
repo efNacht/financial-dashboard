@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Финансовый дашборд{% endblock %}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app-header">
+  <div class="app-header-inner">
+    <a href="/dashboard" class="logo">Финансовый дашборд</a>
+    <nav class="app-nav">
+      <a href="/dashboard" class="{% if active_page == 'dashboard' %}active{% endif %}">Дашборд</a>
+      <a href="/summary" class="{% if active_page == 'summary' %}active{% endif %}">Сводная таблица</a>
+      <a href="/upload" class="{% if active_page == 'upload' %}active{% endif %}">Загрузка</a>
+    </nav>
+  </div>
+</div>
+<main class="main-content">
+{% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

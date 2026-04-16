@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% set active_page = 'dashboard' %}
+{% block title %}Финансовый дашборд{% endblock %}
+{% block content %}
+
+<div class="nav" id="nav">
+  <div class="nav-tab active" data-section="overview">Обзор рынка</div>
+  <div class="nav-tab" data-section="revenue">Выручка</div>
+  <div class="nav-tab" data-section="profitability">Прибыльность</div>
+  <div class="nav-tab" data-section="balance">Баланс</div>
+  <div class="nav-tab" data-section="ratios">Коэффициенты</div>
+  <div class="nav-tab" data-section="compare">Сравнение</div>
+  <div class="nav-tab" data-section="companies">Компании</div>
+  <div class="nav-tab" data-section="details">Детальный анализ</div>
+</div>
+
+<div class="dash-main">
+
+  <!-- ===== OVERVIEW ===== -->
+  <div class="section active" id="sec-overview">
+    <div class="cards-grid" id="overview-cards"></div>
+    <div class="chart-row">
+      <div class="chart-box full"><h3>Совокупная выручка отрасли по годам</h3><canvas id="chart-revenue-all"></canvas></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box"><h3>Топ-10 по выручке (последний год)</h3><canvas id="chart-top-revenue"></canvas></div>
+      <div class="chart-box"><h3>Топ-10 по чистой прибыли (последний год)</h3><canvas id="chart-top-profit"></canvas></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box"><h3>Доля рынка по выручке</h3><canvas id="chart-market-share"></canvas></div>
+      <div class="chart-box"><h3>Динамика совокупной выручки отрасли</h3><canvas id="chart-total-revenue"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ===== REVENUE ===== -->
+  <div class="section" id="sec-revenue">
+    <p class="section-desc">Выручка компаний за 2021-2025 гг. Данные в тыс. руб.</p>
+    <div class="chart-row">
+      <div class="chart-box full"><h3>Выручка по годам (топ-8 компаний)</h3><canvas id="chart-rev-dynamics"></canvas></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box"><h3>Рост выручки за последний год (%)</h3><canvas id="chart-rev-growth"></canvas></div>
+      <div class="chart-box"><h3>Структура расходов (топ-5, последний год)</h3><canvas id="chart-cost-structure"></canvas></div>
+    </div>
+    <div class="table-wrap">
+      <h3>Выручка по годам (тыс. руб.)</h3>
+      <div class="table-scroll"><table id="table-revenue"></table></div>
+    </div>
+  </div>
+
+  <!-- ===== PROFITABILITY ===== -->
+  <div class="section" id="sec-profitability">
+    <p class="section-desc">Рентабельность компаний. Горизонтальные диаграммы показывают все компании для наглядного сравнения.</p>
+    <div class="chart-row">
+      <div class="chart-box"><h3>Валовая рентабельность (%)</h3><canvas id="chart-gross-margin"></canvas></div>
+      <div class="chart-box"><h3>Операционная рентабельность (%)</h3><canvas id="chart-op-margin"></canvas></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box"><h3>Чистая рентабельность (%)</h3><canvas id="chart-net-margin"></canvas></div>
+      <div class="chart-box"><h3>Чистая прибыль по годам (топ-8)</h3><canvas id="chart-net-profit-dyn"></canvas></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box full"><h3>Каскад прибыли (Waterfall) — лидер отрасли</h3><canvas id="chart-waterfall"></canvas></div>
+    </div>
+    <div class="table-wrap">
+      <h3>Рентабельность по годам (%)</h3>
+      <div class="table-scroll"><table id="table-margins"></table></div>
+    </div>
+  </div>
+
+  <!-- ===== BALANCE ===== -->
+  <div class="section" id="sec-balance">
+    <div class="chart-row">
+      <div class="chart-box"><h3>Активы по компаниям (последний год)</h3><canvas id="chart-assets-bar"></canvas></div>
+      <div class="chart-box"><h3>Структура активов (топ-5)</h3><canvas id="chart-asset-structure"></canvas></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box"><h3>Собственный капитал vs Долг (топ-8)</h3><canvas id="chart-equity-debt"></canvas></div>
+      <div class="chart-box"><h3>Денежные средства (топ-8)</h3><canvas id="chart-cash"></canvas></div>
+    </div>
+    <div class="table-wrap">
+      <h3>Ключевые показатели баланса (тыс. руб.)</h3>
+      <div class="table-scroll"><table id="table-balance"></table></div>
+    </div>
+  </div>
+
+  <!-- ===== RATIOS ===== -->
+  <div class="section" id="sec-ratios">
+    <p class="section-desc">Финансовые коэффициенты. Горизонтальные диаграммы показывают все компании, ранжированные по значению.</p>
+    <div class="chart-row">
+      <div class="chart-box"><h3>ROA — рентабельность активов (%)</h3><canvas id="chart-roa"></canvas></div>
+      <div class="chart-box"><h3>ROE — рентабельность капитала (%)</h3><canvas id="chart-roe"></canvas></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box"><h3>Коэффициент текущей ликвидности</h3><canvas id="chart-current-ratio"></canvas></div>
+      <div class="chart-box"><h3>Долг / Собственный капитал</h3><canvas id="chart-de-ratio"></canvas></div>
+    </div>
+    <div class="table-wrap">
+      <h3>Финансовые коэффициенты (последний год)</h3>
+      <div class="table-scroll"><table id="table-ratios"></table></div>
+    </div>
+  </div>
+
+  <!-- ===== COMPARE ===== -->
+  <div class="section" id="sec-compare">
+    <div class="controls">
+      <label>Компания 1:</label>
+      <select id="cmp-company1"></select>
+      <label>Компания 2:</label>
+      <select id="cmp-company2"></select>
+      <label>Показатель:</label>
+      <select id="cmp-metric">
+        <option value="revenue">Выручка</option>
+        <option value="net_profit">Чистая прибыль</option>
+        <option value="gross_margin">Валовая рентабельность</option>
+        <option value="operating_margin">Операц. рентабельность</option>
+        <option value="net_margin">Чистая рентабельность</option>
+        <option value="total_assets">Активы</option>
+        <option value="roa">ROA</option>
+        <option value="roe">ROE</option>
+      </select>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box full"><h3 id="cmp-title">Сравнение</h3><canvas id="chart-compare"></canvas></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box"><h3>Радар — ключевые метрики (последний год)</h3><canvas id="chart-radar"></canvas></div>
+      <div class="chart-box"><h3>Выручка vs Рентабельность vs Масштаб</h3><canvas id="chart-bubble"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ===== COMPANIES GRID ===== -->
+  <div class="section" id="sec-companies">
+    <div class="company-cards" id="company-cards-grid"></div>
+  </div>
+
+  <!-- ===== DETAILS ===== -->
+  <div class="section" id="sec-details">
+    <div class="controls">
+      <label>Компания:</label>
+      <select id="detail-company"></select>
+    </div>
+    <div class="cards-grid" id="detail-cards"></div>
+    <div class="chart-row">
+      <div class="chart-box"><h3>P&L — динамика</h3><canvas id="chart-detail-pl"></canvas></div>
+      <div class="chart-box"><h3>Структура баланса</h3><canvas id="chart-detail-balance"></canvas></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box"><h3>Рентабельность</h3><canvas id="chart-detail-margins"></canvas></div>
+      <div class="chart-box"><h3>Структура расходов</h3><canvas id="chart-detail-costs"></canvas></div>
+    </div>
+    <div class="table-wrap">
+      <h3>Полный отчёт о финансовых результатах</h3>
+      <div class="table-scroll"><table id="table-detail-pl"></table></div>
+    </div>
+    <div class="table-wrap">
+      <h3>Баланс</h3>
+      <div class="table-scroll"><table id="table-detail-balance"></table></div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const DATA = {{ data_json | safe }};
+</script>
+<script src="/static/dashboard.js"></script>
+{% endblock %}
