@@ -111,7 +111,8 @@ def save_report(short_code, year, metrics, raw_pl, raw_balance, filename):
 
 @app.route('/')
 def index():
-    return redirect(url_for('dashboard'))
+    data = get_all_data()
+    return render_template('dashboard.html', data_json=json.dumps(data, ensure_ascii=False))
 
 
 @app.route('/dashboard')
