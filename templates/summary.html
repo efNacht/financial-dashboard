@@ -4,24 +4,39 @@
 {% block content %}
 <div class="page-header">
   <h1>Сводная таблица</h1>
-  <p class="subtitle">Выручка и прибыль компаний за 2023-2025 гг. Данные в тыс. руб.</p>
+  <p class="subtitle" id="subtitle">Выберите год и метрики для анализа</p>
 </div>
 
 <div class="toolbar">
   <div class="toolbar-group">
-    <label>Столбцы прибыли:</label>
-    <button class="toggle-btn active" data-cols="profit" onclick="toggleColGroup('profit', this)">Прибыль 23/24/25</button>
-    <button class="toggle-btn active" data-cols="growth" onclick="toggleColGroup('growth', this)">Рост %</button>
-    <button class="toggle-btn active" data-cols="diff" onclick="toggleColGroup('diff', this)">Разница руб.</button>
-    <button class="toggle-btn active" data-cols="sum2y" onclick="toggleColGroup('sum2y', this)">За 2 года</button>
+    <label>Текущий год:</label>
+    <select id="year-select" onchange="onYearChange()"></select>
   </div>
   <div class="toolbar-group">
+    <label>Типы столбцов:</label>
+    <button class="toggle-btn active" data-cols="ym2" onclick="toggleColGroup('ym2', this)">Y−2</button>
+    <button class="toggle-btn active" data-cols="ym1" onclick="toggleColGroup('ym1', this)">Y−1</button>
+    <button class="toggle-btn active" data-cols="y" onclick="toggleColGroup('y', this)">Y</button>
+    <button class="toggle-btn active" data-cols="pct" onclick="toggleColGroup('pct', this)">Рост %</button>
+    <button class="toggle-btn active" data-cols="diff" onclick="toggleColGroup('diff', this)">Разница руб.</button>
+  </div>
+  <div class="toolbar-group">
+    <a href="#" id="export-link" class="btn-export">⬇ Скачать Excel</a>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="toolbar-group" style="flex-wrap: wrap;">
+    <label>Метрики из ОПиУ:</label>
+    <div id="metric-chips" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="toolbar-group" style="flex: 1;">
     <label>Компании:</label>
     <input type="text" id="company-filter" placeholder="Поиск..." oninput="filterCompanies(this.value)">
     <button class="btn-small" onclick="toggleAllCompanies()">Все / Снять</button>
-  </div>
-  <div class="toolbar-group">
-    <a href="/export/xlsx" class="btn-export">⬇ Скачать Excel</a>
   </div>
 </div>
 
@@ -37,133 +52,178 @@
 <script>
 const DATA = {{ data_json | safe }};
 
-const COL_GROUPS = {
-  profit: [4, 5, 6],
-  growth: [7, 8],
-  diff: [9],
-  sum2y: [10],
-};
-let hiddenCols = new Set();
+// Available P&L / balance metrics. isPct=true means value is already a percentage (render with .0% suffix).
+const METRICS = [
+  { key: 'revenue',             label: 'Выручка',                default: true },
+  { key: 'net_profit',          label: 'Чистая прибыль',         default: true, profit: true },
+  { key: 'gross_profit',        label: 'Валовая прибыль',        default: false, profit: true },
+  { key: 'operating_profit',    label: 'Прибыль от продаж',      default: false, profit: true },
+  { key: 'profit_before_tax',   label: 'Прибыль до налог.',      default: false, profit: true },
+  { key: 'cogs',                label: 'Себестоимость',          default: false },
+  { key: 'commercial_expenses', label: 'Коммерч. расходы',       default: false },
+  { key: 'admin_expenses',      label: 'Управл. расходы',        default: false },
+  { key: 'gross_margin',        label: 'Валовая рентаб.',        default: false, isPct: true },
+  { key: 'operating_margin',    label: 'Операц. рентаб.',        default: false, isPct: true },
+  { key: 'net_margin',          label: 'Чистая рентаб.',         default: false, isPct: true },
+  { key: 'total_assets',        label: 'Активы',                 default: false },
+  { key: 'equity',              label: 'Собств. капитал',        default: false },
+];
+
+let hiddenColTypes = new Set();
+let activeMetrics = new Set(METRICS.filter(m => m.default).map(m => m.key));
+let currentYear = null;
 let hiddenCompanies = new Set();
 let allCompaniesOn = true;
 
-function getAllCompanies() {
-  return Object.entries(DATA).map(([k, c]) => [k, c]);
+function getAllYears() {
+  const ys = new Set();
+  Object.values(DATA).forEach(c => Object.keys(c.years_data).forEach(y => ys.add(+y)));
+  return [...ys].sort();
 }
-
+function getAllCompanies() { return Object.entries(DATA).map(([k, c]) => [k, c]); }
 function nameOf(c, k) { return c.full_name || k; }
 
-function fmtK(v) {
-  if (v == null) return '\u2014';
+function fmtNum(v) {
+  if (v == null || isNaN(v)) return '\u2014';
   return Math.round(v).toLocaleString('ru-RU');
 }
-
 function fmtPct(v) {
-  if (v == null) return '\u2014';
-  return Math.round(v * 100) + '%';
+  if (v == null || isNaN(v)) return '\u2014';
+  return (v > 0 ? '+' : '') + Math.round(v * 100) + '%';
+}
+function fmtMarginPct(v) {
+  if (v == null || isNaN(v)) return '\u2014';
+  return v.toFixed(1) + '%';
 }
 
-function toggleColGroup(group, btn) {
-  const cols = COL_GROUPS[group];
+function onYearChange() {
+  currentYear = +document.getElementById('year-select').value;
+  renderTable();
+}
+
+function toggleColGroup(type, btn) {
   btn.classList.toggle('active');
-  if (btn.classList.contains('active')) {
-    cols.forEach(c => hiddenCols.delete(c));
-  } else {
-    cols.forEach(c => hiddenCols.add(c));
-  }
+  if (btn.classList.contains('active')) hiddenColTypes.delete(type);
+  else hiddenColTypes.add(type);
+  renderTable();
+}
+
+function toggleMetric(key, chip) {
+  if (activeMetrics.has(key)) { activeMetrics.delete(key); chip.classList.remove('active'); }
+  else { activeMetrics.add(key); chip.classList.add('active'); }
   renderTable();
 }
 
 function toggleCompany(k, chip) {
-  if (hiddenCompanies.has(k)) {
-    hiddenCompanies.delete(k);
-    chip.classList.add('active');
-  } else {
-    hiddenCompanies.add(k);
-    chip.classList.remove('active');
-  }
+  if (hiddenCompanies.has(k)) { hiddenCompanies.delete(k); chip.classList.add('active'); }
+  else { hiddenCompanies.add(k); chip.classList.remove('active'); }
   renderTable();
 }
 
 function toggleAllCompanies() {
   allCompaniesOn = !allCompaniesOn;
-  const chips = document.querySelectorAll('.company-chip');
-  if (allCompaniesOn) {
-    hiddenCompanies.clear();
-    chips.forEach(c => c.classList.add('active'));
-  } else {
-    getAllCompanies().forEach(([k]) => hiddenCompanies.add(k));
-    chips.forEach(c => c.classList.remove('active'));
-  }
+  const chips = document.querySelectorAll('#company-chips .company-chip');
+  if (allCompaniesOn) { hiddenCompanies.clear(); chips.forEach(c => c.classList.add('active')); }
+  else { getAllCompanies().forEach(([k]) => hiddenCompanies.add(k)); chips.forEach(c => c.classList.remove('active')); }
   renderTable();
 }
 
 function filterCompanies(q) {
   q = q.toLowerCase();
-  document.querySelectorAll('.company-chip').forEach(chip => {
+  document.querySelectorAll('#company-chips .company-chip').forEach(chip => {
     chip.style.display = chip.textContent.toLowerCase().includes(q) ? '' : 'none';
   });
 }
 
-function buildChips() {
+function buildYearSelect() {
+  const years = getAllYears();
+  currentYear = years[years.length - 1];
+  const sel = document.getElementById('year-select');
+  sel.innerHTML = years.map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`).join('');
+}
+
+function buildMetricChips() {
+  const container = document.getElementById('metric-chips');
+  container.innerHTML = METRICS.map(m =>
+    `<span class="company-chip ${activeMetrics.has(m.key) ? 'active' : ''}" onclick="toggleMetric('${m.key}', this)">${m.label}</span>`
+  ).join('');
+}
+
+function buildCompanyChips() {
   const container = document.getElementById('company-chips');
   container.innerHTML = getAllCompanies().map(([k, c]) =>
     `<span class="company-chip active" onclick="toggleCompany('${k}', this)">${nameOf(c, k)}</span>`
   ).join('');
 }
 
+function fmtValCell(v, m) {
+  if (v == null || v === 0) return `<td class="num">\u2014</td>`;
+  if (m.isPct) return `<td class="num">${fmtMarginPct(v)}</td>`;
+  const cls = m.profit ? (v >= 0 ? 'positive' : 'negative') : '';
+  return `<td class="num ${cls}">${fmtNum(v)}</td>`;
+}
+
 function renderTable() {
+  const y = currentYear;
+  const ym1 = y - 1;
+  const ym2 = y - 2;
+  document.getElementById('subtitle').textContent =
+    `Показатели за ${ym2}, ${ym1}, ${y} гг. Суммы в тыс. руб., рентабельность в %.`;
+
+  const selectedMetrics = METRICS.filter(m => activeMetrics.has(m.key));
+  const headers = [{ label: 'Юр. лицо' }];
+  selectedMetrics.forEach(m => {
+    if (!hiddenColTypes.has('ym2'))  headers.push({ label: `${m.label} ${ym2}` });
+    if (!hiddenColTypes.has('ym1'))  headers.push({ label: `${m.label} ${ym1}` });
+    if (!hiddenColTypes.has('y'))    headers.push({ label: `${m.label} ${y}` });
+    if (!hiddenColTypes.has('pct'))  headers.push({ label: `${m.label} ${y}/${ym1}, %` });
+    if (!hiddenColTypes.has('diff')) headers.push({ label: `${m.label} ${y}\u2212${ym1}, руб.` });
+  });
+
+  const thead = '<tr>' + headers.map(h => `<th>${h.label}</th>`).join('') + '</tr>';
+
   const companies = getAllCompanies().filter(([k]) => !hiddenCompanies.has(k));
-  const allHeaders = [
-    {idx: 0, text: 'Юр. лицо'},
-    {idx: 1, text: 'Выручка 2023'},
-    {idx: 2, text: 'Выручка 2024'},
-    {idx: 3, text: 'Выручка 2025'},
-    {idx: 4, text: 'Чист. прибыль 2023'},
-    {idx: 5, text: 'Чист. прибыль 2024'},
-    {idx: 6, text: 'Чист. прибыль 2025'},
-    {idx: 7, text: 'Приб. 24/23, %'},
-    {idx: 8, text: 'Приб. 25/24, %'},
-    {idx: 9, text: 'Приб. 25\u201324, руб.'},
-    {idx: 10, text: 'Приб. за 2 года'},
-  ];
-  const visibleHeaders = allHeaders.filter(h => !hiddenCols.has(h.idx));
-
-  let thead = '<tr>' + visibleHeaders.map(h => `<th>${h.text}</th>`).join('') + '</tr>';
   let tbody = '';
-
   companies.forEach(([k, c]) => {
     const yd = c.years_data;
-    const d23 = yd[2023] || {}, d24 = yd[2024] || {}, d25 = yd[2025] || {};
-    const r23 = d23.revenue || 0, r24 = d24.revenue || 0, r25 = d25.revenue || 0;
-    const p23 = d23.net_profit || 0, p24 = d24.net_profit || 0, p25 = d25.net_profit || 0;
-    const g2423 = p23 ? (p24 - p23) / Math.abs(p23) : null;
-    const g2524 = p24 ? (p25 - p24) / Math.abs(p24) : null;
-    const diff = p25 - p24;
-    const sum2y = p24 + p25;
+    const cells = [`<td>${nameOf(c, k)}</td>`];
+    selectedMetrics.forEach(m => {
+      const v_y   = yd[y]?.[m.key];
+      const v_ym1 = yd[ym1]?.[m.key];
+      const v_ym2 = yd[ym2]?.[m.key];
 
-    const allCells = [
-      {idx: 0, html: `<td>${nameOf(c, k)}</td>`},
-      {idx: 1, html: `<td class="num">${r23 ? fmtK(r23) : '\u2014'}</td>`},
-      {idx: 2, html: `<td class="num">${r24 ? fmtK(r24) : '\u2014'}</td>`},
-      {idx: 3, html: `<td class="num">${r25 ? fmtK(r25) : '\u2014'}</td>`},
-      {idx: 4, html: `<td class="num ${p23>=0?'positive':'negative'}">${p23 ? fmtK(p23) : '\u2014'}</td>`},
-      {idx: 5, html: `<td class="num ${p24>=0?'positive':'negative'}">${p24 ? fmtK(p24) : '\u2014'}</td>`},
-      {idx: 6, html: `<td class="num ${p25>=0?'positive':'negative'}">${p25 ? fmtK(p25) : '\u2014'}</td>`},
-      {idx: 7, html: `<td class="num ${(g2423||0)>=0?'positive':'negative'}">${g2423 !== null ? Math.round(g2423*100)+'%' : '\u2014'}</td>`},
-      {idx: 8, html: `<td class="num ${(g2524||0)>=0?'positive':'negative'}">${g2524 !== null ? Math.round(g2524*100)+'%' : '\u2014'}</td>`},
-      {idx: 9, html: `<td class="num ${diff>=0?'positive':'negative'}">${fmtK(diff)}</td>`},
-      {idx: 10, html: `<td class="num ${sum2y>=0?'positive':'negative'}">${fmtK(sum2y)}</td>`},
-    ];
-    const visibleCells = allCells.filter(c => !hiddenCols.has(c.idx));
-    tbody += '<tr>' + visibleCells.map(c => c.html).join('') + '</tr>';
+      if (!hiddenColTypes.has('ym2'))  cells.push(fmtValCell(v_ym2, m));
+      if (!hiddenColTypes.has('ym1'))  cells.push(fmtValCell(v_ym1, m));
+      if (!hiddenColTypes.has('y'))    cells.push(fmtValCell(v_y, m));
+      if (!hiddenColTypes.has('pct')) {
+        const pct = (v_ym1 != null && v_ym1 !== 0) ? (v_y - v_ym1) / Math.abs(v_ym1) : null;
+        const cls = pct == null ? '' : (pct >= 0 ? 'positive' : 'negative');
+        cells.push(`<td class="num ${cls}">${fmtPct(pct)}</td>`);
+      }
+      if (!hiddenColTypes.has('diff')) {
+        const diff = (v_y != null && v_ym1 != null) ? v_y - v_ym1 : null;
+        const cls = diff == null ? '' : (diff >= 0 ? 'positive' : 'negative');
+        cells.push(`<td class="num ${cls}">${diff == null ? '\u2014' : fmtNum(diff)}</td>`);
+      }
+    });
+    tbody += '<tr>' + cells.join('') + '</tr>';
   });
 
   document.querySelector('#summary-table thead').innerHTML = thead;
   document.querySelector('#summary-table tbody').innerHTML = tbody;
+
+  const params = new URLSearchParams({
+    year: y,
+    metrics: [...activeMetrics].join(','),
+    hidden_types: [...hiddenColTypes].join(','),
+    hidden_companies: [...hiddenCompanies].join(','),
+  });
+  document.getElementById('export-link').href = `/export/xlsx?${params}`;
 }
 
-buildChips();
+buildYearSelect();
+buildMetricChips();
+buildCompanyChips();
 renderTable();
 </script>
 {% endblock %}

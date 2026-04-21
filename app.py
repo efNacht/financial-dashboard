@@ -204,15 +204,55 @@ def api_data():
     return jsonify(get_all_data())
 
 
+# Metric definitions shared with summary.html (key -> label, flags)
+METRIC_DEFS = [
+    {'key': 'revenue',             'label': 'Выручка',          'profit': False, 'is_pct': False},
+    {'key': 'net_profit',          'label': 'Чистая прибыль',   'profit': True,  'is_pct': False},
+    {'key': 'gross_profit',        'label': 'Валовая прибыль',  'profit': True,  'is_pct': False},
+    {'key': 'operating_profit',    'label': 'Прибыль от продаж','profit': True,  'is_pct': False},
+    {'key': 'profit_before_tax',   'label': 'Прибыль до налог.','profit': True,  'is_pct': False},
+    {'key': 'cogs',                'label': 'Себестоимость',    'profit': False, 'is_pct': False},
+    {'key': 'commercial_expenses', 'label': 'Коммерч. расходы', 'profit': False, 'is_pct': False},
+    {'key': 'admin_expenses',      'label': 'Управл. расходы',  'profit': False, 'is_pct': False},
+    {'key': 'gross_margin',        'label': 'Валовая рентаб.',  'profit': False, 'is_pct': True},
+    {'key': 'operating_margin',    'label': 'Операц. рентаб.',  'profit': False, 'is_pct': True},
+    {'key': 'net_margin',          'label': 'Чистая рентаб.',   'profit': False, 'is_pct': True},
+    {'key': 'total_assets',        'label': 'Активы',           'profit': False, 'is_pct': False},
+    {'key': 'equity',              'label': 'Собств. капитал',  'profit': False, 'is_pct': False},
+]
+METRIC_MAP = {m['key']: m for m in METRIC_DEFS}
+
+
 @app.route('/export/xlsx')
 def export_xlsx():
-    """Export summary table as xlsx."""
+    """Export summary table as xlsx. Supports query params: year, metrics, hidden_types, hidden_companies."""
     data = get_all_data()
+
+    # Determine current year
+    all_years = set()
+    for c in data.values():
+        all_years.update(c['years_data'].keys())
+    all_years = sorted(all_years)
+    default_year = all_years[-1] if all_years else 2025
+
+    try:
+        current_year = int(request.args.get('year', default_year))
+    except (ValueError, TypeError):
+        current_year = default_year
+    ym1 = current_year - 1
+    ym2 = current_year - 2
+
+    metrics_param = request.args.get('metrics', 'revenue,net_profit')
+    active_keys = [k for k in metrics_param.split(',') if k in METRIC_MAP] or ['revenue', 'net_profit']
+    active_metrics = [METRIC_MAP[k] for k in active_keys]
+
+    hidden_types = set(request.args.get('hidden_types', '').split(',')) - {''}
+    hidden_companies = set(request.args.get('hidden_companies', '').split(',')) - {''}
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Сводная таблица"
 
-    # Styles
     header_font = Font(bold=True, size=11, color="FFFFFF")
     header_fill = PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
     header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -220,14 +260,21 @@ def export_xlsx():
         left=Side(style='thin'), right=Side(style='thin'),
         top=Side(style='thin'), bottom=Side(style='thin')
     )
-    num_fmt = '#,##0'
-    pct_fmt = '0%'
 
-    headers = [
-        "Юр. лицо", "Выручка 2023", "Выручка 2024", "Выручка 2025",
-        "Чистая прибыль 2023", "Чистая прибыль 2024", "Чистая прибыль 2025",
-        "Прибыль 24/23, %", "Прибыль 25/24, %", "Прибыль 25−24, руб.", "Прибыль за 2 года"
-    ]
+    # Build headers and column metadata
+    headers = ['Юр. лицо']
+    col_meta = [{'type': 'name'}]
+    for m in active_metrics:
+        if 'ym2' not in hidden_types:
+            headers.append(f"{m['label']} {ym2}"); col_meta.append({'type': 'val', 'metric': m, 'year': ym2})
+        if 'ym1' not in hidden_types:
+            headers.append(f"{m['label']} {ym1}"); col_meta.append({'type': 'val', 'metric': m, 'year': ym1})
+        if 'y' not in hidden_types:
+            headers.append(f"{m['label']} {current_year}"); col_meta.append({'type': 'val', 'metric': m, 'year': current_year})
+        if 'pct' not in hidden_types:
+            headers.append(f"{m['label']} {current_year}/{ym1}, %"); col_meta.append({'type': 'pct', 'metric': m})
+        if 'diff' not in hidden_types:
+            headers.append(f"{m['label']} {current_year}−{ym1}, руб."); col_meta.append({'type': 'diff', 'metric': m})
 
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=h)
@@ -238,49 +285,52 @@ def export_xlsx():
 
     row_num = 2
     for sc, company in data.items():
+        if sc in hidden_companies:
+            continue
         yd = company['years_data']
-        d23 = yd.get(2023, yd.get('2023', {}))
-        d24 = yd.get(2024, yd.get('2024', {}))
-        d25 = yd.get(2025, yd.get('2025', {}))
+        # Normalize keys to ints
+        yd_n = {int(k): v for k, v in yd.items()}
 
-        r23 = d23.get('revenue', 0) or 0
-        r24 = d24.get('revenue', 0) or 0
-        r25 = d25.get('revenue', 0) or 0
-        p23 = d23.get('net_profit', 0) or 0
-        p24 = d24.get('net_profit', 0) or 0
-        p25 = d25.get('net_profit', 0) or 0
-
-        g2423 = (p24 - p23) / abs(p23) if p23 else None
-        g2524 = (p25 - p24) / abs(p24) if p24 else None
-        diff = p25 - p24
-        sum2y = p24 + p25
-
-        values = [
-            company['full_name'],
-            r23 or None, r24 or None, r25 or None,
-            p23 or None, p24 or None, p25 or None,
-            g2423, g2524, diff, sum2y,
-        ]
-
-        for col, v in enumerate(values, 1):
-            cell = ws.cell(row=row_num, column=col, value=v)
+        for col, meta in enumerate(col_meta, 1):
+            cell = ws.cell(row=row_num, column=col)
             cell.border = thin_border
-            if col == 1:
-                cell.alignment = Alignment(horizontal="left")
-            elif col in (8, 9):
-                cell.number_format = '0%'
-                cell.alignment = Alignment(horizontal="center")
-            else:
-                cell.number_format = num_fmt
-                cell.alignment = Alignment(horizontal="right")
 
-            # Color negative values red
-            if isinstance(v, (int, float)) and v < 0:
-                cell.font = Font(color="DC2626")
+            if meta['type'] == 'name':
+                cell.value = company['full_name']
+                cell.alignment = Alignment(horizontal="left")
+                continue
+
+            m = meta['metric']
+            v_y   = (yd_n.get(current_year) or {}).get(m['key'])
+            v_ym1 = (yd_n.get(ym1) or {}).get(m['key'])
+
+            if meta['type'] == 'val':
+                v = (yd_n.get(meta['year']) or {}).get(m['key'])
+                cell.value = v if v not in (0, None) else None
+                if m['is_pct']:
+                    cell.number_format = '0.0"%"'
+                else:
+                    cell.number_format = '#,##0'
+                cell.alignment = Alignment(horizontal="right")
+                if m['profit'] and isinstance(v, (int, float)) and v < 0:
+                    cell.font = Font(color="DC2626")
+            elif meta['type'] == 'pct':
+                pct = (v_y - v_ym1) / abs(v_ym1) if (v_y is not None and v_ym1 not in (None, 0)) else None
+                cell.value = pct
+                cell.number_format = '0%;[Red]-0%'
+                cell.alignment = Alignment(horizontal="center")
+                if isinstance(pct, (int, float)) and pct < 0:
+                    cell.font = Font(color="DC2626")
+            elif meta['type'] == 'diff':
+                diff = (v_y - v_ym1) if (v_y is not None and v_ym1 is not None) else None
+                cell.value = diff
+                cell.number_format = '#,##0;[Red]-#,##0'
+                cell.alignment = Alignment(horizontal="right")
+                if isinstance(diff, (int, float)) and diff < 0:
+                    cell.font = Font(color="DC2626")
 
         row_num += 1
 
-    # Auto-width
     for col in range(1, len(headers) + 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 18
     ws.column_dimensions['A'].width = 35
@@ -288,7 +338,7 @@ def export_xlsx():
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
-    return send_file(buf, download_name="сводная_таблица.xlsx",
+    return send_file(buf, download_name=f"сводная_таблица_{current_year}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
