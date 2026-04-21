@@ -19,6 +19,7 @@
     <button class="toggle-btn active" data-cols="y" onclick="toggleColGroup('y', this)">Y</button>
     <button class="toggle-btn active" data-cols="pct" onclick="toggleColGroup('pct', this)">Рост %</button>
     <button class="toggle-btn active" data-cols="diff" onclick="toggleColGroup('diff', this)">Разница руб.</button>
+    <button class="toggle-btn active" id="spark-btn" onclick="toggleSparklines(this)">📈 Динамика</button>
   </div>
   <div class="toolbar-group">
     <a href="#" id="export-link" class="btn-export">⬇ Скачать Excel</a>
@@ -74,6 +75,13 @@ let activeMetrics = new Set(METRICS.filter(m => m.default).map(m => m.key));
 let currentYear = null;
 let hiddenCompanies = new Set();
 let allCompaniesOn = true;
+let showSparklines = true;
+
+function toggleSparklines(btn) {
+  showSparklines = !showSparklines;
+  btn.classList.toggle('active');
+  renderTable();
+}
 
 function getAllYears() {
   const ys = new Set();
@@ -157,10 +165,34 @@ function buildCompanyChips() {
 }
 
 function fmtValCell(v, m) {
-  if (v == null || v === 0) return `<td class="num">\u2014</td>`;
+  if (v == null) return `<td class="num muted">\u2014</td>`;
   if (m.isPct) return `<td class="num">${fmtMarginPct(v)}</td>`;
+  if (v === 0) return `<td class="num">0</td>`;
   const cls = m.profit ? (v >= 0 ? 'positive' : 'negative') : '';
   return `<td class="num ${cls}">${fmtNum(v)}</td>`;
+}
+
+// Tiny SVG sparkline — one per (company, metric) showing multi-year trend
+function sparkline(values) {
+  const vals = values.filter(v => v != null && !isNaN(v));
+  if (vals.length < 2) return '';
+  const w = 72, h = 22, pad = 2;
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const range = max - min || 1;
+  const step = (w - 2*pad) / (vals.length - 1);
+  const pts = vals.map((v, i) => {
+    const x = pad + i * step;
+    const y = pad + (h - 2*pad) * (1 - (v - min) / range);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const last = vals[vals.length - 1];
+  const first = vals[0];
+  const color = last >= first ? '#059669' : '#dc2626';
+  const lastPt = pts.split(' ').pop().split(',');
+  return `<svg class="sparkline" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${lastPt[0]}" cy="${lastPt[1]}" r="2" fill="${color}"/>
+  </svg>`;
 }
 
 function renderTable() {
@@ -171,8 +203,11 @@ function renderTable() {
     `Показатели за ${ym2}, ${ym1}, ${y} гг. Суммы в тыс. руб., рентабельность в %.`;
 
   const selectedMetrics = METRICS.filter(m => activeMetrics.has(m.key));
+  const allYears = [...new Set(Object.values(DATA).flatMap(c => Object.keys(c.years_data).map(Number)))].sort();
+
   const headers = [{ label: 'Юр. лицо' }];
   selectedMetrics.forEach(m => {
+    if (showSparklines) headers.push({ label: `${m.label} — динамика` });
     if (!hiddenColTypes.has('ym2'))  headers.push({ label: `${m.label} ${ym2}` });
     if (!hiddenColTypes.has('ym1'))  headers.push({ label: `${m.label} ${ym1}` });
     if (!hiddenColTypes.has('y'))    headers.push({ label: `${m.label} ${y}` });
@@ -192,11 +227,15 @@ function renderTable() {
       const v_ym1 = yd[ym1]?.[m.key];
       const v_ym2 = yd[ym2]?.[m.key];
 
+      if (showSparklines) {
+        const trendValues = allYears.map(yr => yd[yr]?.[m.key]).filter(v => v != null);
+        cells.push(`<td class="spark-cell">${sparkline(trendValues)}</td>`);
+      }
       if (!hiddenColTypes.has('ym2'))  cells.push(fmtValCell(v_ym2, m));
       if (!hiddenColTypes.has('ym1'))  cells.push(fmtValCell(v_ym1, m));
       if (!hiddenColTypes.has('y'))    cells.push(fmtValCell(v_y, m));
       if (!hiddenColTypes.has('pct')) {
-        const pct = (v_ym1 != null && v_ym1 !== 0) ? (v_y - v_ym1) / Math.abs(v_ym1) : null;
+        const pct = (v_ym1 != null && v_ym1 !== 0 && v_y != null) ? (v_y - v_ym1) / Math.abs(v_ym1) : null;
         const cls = pct == null ? '' : (pct >= 0 ? 'positive' : 'negative');
         cells.push(`<td class="num ${cls}">${fmtPct(pct)}</td>`);
       }

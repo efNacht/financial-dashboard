@@ -12,15 +12,33 @@ const COLORS = [
 ];
 
 // Light-theme chart defaults
-const GRID_COLOR = 'rgba(0,0,0,0.06)';
+const GRID_COLOR = 'rgba(0,0,0,0.05)';
 const TICK_COLOR = '#6b7280';
 const LEGEND_COLOR = '#374151';
+const LABEL_COLOR = '#1a1d2e';
+
+// Register datalabels plugin globally but disabled by default — enable per-chart with plugins.datalabels
+if (window.ChartDataLabels) {
+  Chart.register(window.ChartDataLabels);
+  Chart.defaults.plugins.datalabels = { display: false };
+}
 
 function fmt(n, decimals=0) {
   if (n === null || n === undefined || isNaN(n)) return '—';
-  if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(1) + ' млрд';
-  if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(1) + ' млн';
-  return n.toFixed(decimals);
+  const abs = Math.abs(n);
+  // Data is in тыс. руб. → 1e6 тыс. руб = 1 млрд руб, 1e3 тыс. руб = 1 млн руб
+  if (abs >= 1e6) return (n/1e6).toFixed(abs >= 1e7 ? 1 : 2) + ' млрд';
+  if (abs >= 1e3) return (n/1e3).toFixed(abs >= 1e4 ? 0 : 1) + ' млн';
+  return Math.round(n).toLocaleString('ru-RU');
+}
+
+// Short version for datalabels (no "млрд"/"млн" suffix if space is tight)
+function fmtShort(n) {
+  if (n === null || n === undefined || isNaN(n) || n === 0) return '';
+  const abs = Math.abs(n);
+  if (abs >= 1e6) return (n/1e6).toFixed(1) + ' млрд';
+  if (abs >= 1e3) return (n/1e3).toFixed(0) + ' млн';
+  return Math.round(n).toString();
 }
 
 function fmtK(n) {
@@ -42,7 +60,10 @@ function nameOf(c, k) {
 function shortName(c, k) {
   if (c.full_name && c.full_name !== k) {
     // Remove legal form prefix
-    return c.full_name.replace(/^(ООО|АО|ЗАО|ПАО)\s*["«]?/i, '').replace(/["»]$/,'');
+    let name = c.full_name.replace(/^(ООО|АО|ЗАО|ПАО)\s*["«]?/i, '').replace(/["»]$/,'');
+    // Truncate very long names with ellipsis so chart labels don't get cropped
+    if (name.length > 22) name = name.slice(0, 20) + '…';
+    return name;
   }
   return k;
 }
@@ -145,26 +166,31 @@ function renderOverview() {
   const revDelta = prevRev ? ((totalRev - prevRev) / prevRev * 100).toFixed(1) : null;
   const profDelta = prevProfit ? ((totalProfit - prevProfit) / Math.abs(prevProfit) * 100).toFixed(1) : null;
 
+  const arrow = d => d == null ? '' : (d > 0 ? '▲' : (d < 0 ? '▼' : ''));
   document.getElementById('overview-cards').innerHTML = `
     <div class="stat-card purple">
+      <div class="stat-icon" aria-hidden="true">🏢</div>
       <div class="label">Компаний в анализе</div>
       <div class="value">${companies.length}</div>
-      <div class="delta" style="color:var(--text-secondary)">${years.length} лет данных (${years[0]}–${latestYear})</div>
+      <div class="delta subtle">${years.length} лет данных (${years[0]}–${latestYear})</div>
     </div>
     <div class="stat-card green">
+      <div class="stat-icon" aria-hidden="true">💰</div>
       <div class="label">Совокупная выручка ${latestYear}</div>
       <div class="value">${fmt(totalRev)}</div>
-      <div class="delta ${revDelta > 0 ? 'positive' : 'negative'}">${revDelta ? (revDelta > 0 ? '+' : '') + revDelta + '% к ' + prevYear : ''}</div>
+      <div class="delta ${revDelta > 0 ? 'positive' : revDelta < 0 ? 'negative' : ''}">${revDelta ? arrow(revDelta) + ' ' + (revDelta > 0 ? '+' : '') + revDelta + '% к ' + prevYear : ''}</div>
     </div>
     <div class="stat-card orange">
+      <div class="stat-icon" aria-hidden="true">📈</div>
       <div class="label">Совокупная чистая прибыль ${latestYear}</div>
       <div class="value">${fmt(totalProfit)}</div>
-      <div class="delta ${profDelta > 0 ? 'positive' : 'negative'}">${profDelta ? (profDelta > 0 ? '+' : '') + profDelta + '% к ' + prevYear : ''}</div>
+      <div class="delta ${profDelta > 0 ? 'positive' : profDelta < 0 ? 'negative' : ''}">${profDelta ? arrow(profDelta) + ' ' + (profDelta > 0 ? '+' : '') + profDelta + '% к ' + prevYear : ''}</div>
     </div>
     <div class="stat-card blue">
+      <div class="stat-icon" aria-hidden="true">📊</div>
       <div class="label">Средняя валовая маржа ${latestYear}</div>
       <div class="value">${avgMargin.toFixed(1)}%</div>
-      <div class="delta" style="color:var(--text-secondary)">по ${cnt} компаниям</div>
+      <div class="delta subtle">по ${cnt} компаниям</div>
     </div>
   `;
 
@@ -210,10 +236,17 @@ function renderOverview() {
     },
     options: {
       indexAxis: 'y',
-      plugins: { legend: { display: false } },
+      layout: { padding: { right: 70 } },
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          display: true, anchor: 'end', align: 'end', color: LABEL_COLOR,
+          font: { size: 11, weight: '600' }, formatter: v => fmtShort(v)
+        }
+      },
       scales: {
         x: { ticks: { color: TICK_COLOR, callback: v => fmt(v) }, grid: { color: GRID_COLOR } },
-        y: { ticks: { color: '#1a1d2e', font: { size: 12 } }, grid: { display: false } }
+        y: { ticks: { color: LABEL_COLOR, font: { size: 12 } }, grid: { display: false } }
       }
     }
   });
@@ -232,10 +265,17 @@ function renderOverview() {
     },
     options: {
       indexAxis: 'y',
-      plugins: { legend: { display: false } },
+      layout: { padding: { right: 70 } },
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          display: true, anchor: 'end', align: 'end', color: LABEL_COLOR,
+          font: { size: 11, weight: '600' }, formatter: v => fmtShort(v)
+        }
+      },
       scales: {
         x: { ticks: { color: TICK_COLOR, callback: v => fmt(v) }, grid: { color: GRID_COLOR } },
-        y: { ticks: { color: '#1a1d2e', font: { size: 12 } }, grid: { display: false } }
+        y: { ticks: { color: LABEL_COLOR, font: { size: 12 } }, grid: { display: false } }
       }
     }
   });
@@ -243,20 +283,34 @@ function renderOverview() {
   // Market share doughnut
   const shareData = companies.filter(([k,c]) => (getLatest(c)?.revenue||0) > 0).slice(0, 8);
   const othersRev = totalRev - shareData.reduce((s,[k,c]) => s + (getLatest(c)?.revenue||0), 0);
+  const shareValues = [...shareData.map(([k,c]) => getLatest(c)?.revenue||0), ...(othersRev > 0 ? [othersRev] : [])];
+  const shareTotal = shareValues.reduce((a,b) => a+b, 0);
   makeChart('chart-market-share', {
     type: 'doughnut',
     data: {
       labels: [...shareData.map(([k,c]) => shortName(c,k)), ...(othersRev > 0 ? ['Прочие'] : [])],
       datasets: [{
-        data: [...shareData.map(([k,c]) => getLatest(c)?.revenue||0), ...(othersRev > 0 ? [othersRev] : [])],
+        data: shareValues,
         backgroundColor: [...COLORS.slice(0, shareData.length), '#d1d5db'],
         borderWidth: 2,
         borderColor: '#fff',
+        hoverOffset: 6,
       }]
     },
     options: {
+      cutout: '58%',
       plugins: {
         legend: { position: 'right', labels: { color: LEGEND_COLOR, font: { size: 11 }, boxWidth: 12, padding: 8 } },
+        datalabels: {
+          display: ctx => (ctx.dataset.data[ctx.dataIndex] / shareTotal) >= 0.04,
+          color: '#fff', font: { size: 11, weight: '700' },
+          formatter: v => Math.round(v / shareTotal * 100) + '%'
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.label}: ${fmt(ctx.parsed)} (${(ctx.parsed/shareTotal*100).toFixed(1)}%)`
+          }
+        }
       }
     }
   });
@@ -278,43 +332,29 @@ function renderOverview() {
         backgroundColor: 'rgba(79,70,229,0.08)',
         fill: true,
         tension: 0.3,
-        pointRadius: 5,
+        pointRadius: 6,
+        pointHoverRadius: 8,
         pointBackgroundColor: '#4f46e5',
-        borderWidth: 2.5,
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        borderWidth: 3,
       }]
     },
     options: {
-      plugins: { legend: { display: false } },
+      layout: { padding: { top: 24, right: 12 } },
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          display: true, align: 'top', offset: 6, color: LABEL_COLOR,
+          font: { size: 11, weight: '600' }, formatter: v => fmtShort(v)
+        }
+      },
       scales: {
         y: { ticks: { color: TICK_COLOR, callback: v => fmt(v) }, grid: { color: GRID_COLOR } },
         x: { ticks: { color: TICK_COLOR }, grid: { color: GRID_COLOR } }
       }
     }
   });
-
-  // ---- Summary table: Revenue & Profit 2023-2025 ----
-  let sh = '<thead><tr><th>Юр. лицо</th><th>Выручка 2023</th><th>Выручка 2024</th><th>Выручка 2025</th><th>Чистая прибыль 2023</th><th>Чистая прибыль 2024</th><th>Чистая прибыль 2025</th><th>Приб. 24/23, %</th><th>Приб. 25/24, %</th><th>Приб. 25–24, руб.</th><th>Приб. за 2 года</th></tr></thead><tbody>';
-  companies.forEach(([k, c]) => {
-    const d23 = c.years_data[2023], d24 = c.years_data[2024], d25 = c.years_data[2025];
-    const r23 = d23?.revenue || 0, r24 = d24?.revenue || 0, r25 = d25?.revenue || 0;
-    const p23 = d23?.net_profit || 0, p24 = d24?.net_profit || 0, p25 = d25?.net_profit || 0;
-    const g2423 = p23 ? ((p24 - p23) / Math.abs(p23) * 100) : null;
-    const g2524 = p24 ? ((p25 - p24) / Math.abs(p24) * 100) : null;
-    const diff = p25 - p24;
-    const sum2y = p24 + p25;
-    sh += `<tr><td>${nameOf(c, k)}</td>`;
-    sh += `<td>${r23 ? fmtK(r23) : '—'}</td><td>${r24 ? fmtK(r24) : '—'}</td><td>${r25 ? fmtK(r25) : '—'}</td>`;
-    sh += `<td class="${p23>=0?'positive':'negative'}">${p23 ? fmtK(p23) : '—'}</td>`;
-    sh += `<td class="${p24>=0?'positive':'negative'}">${p24 ? fmtK(p24) : '—'}</td>`;
-    sh += `<td class="${p25>=0?'positive':'negative'}">${p25 ? fmtK(p25) : '—'}</td>`;
-    sh += `<td class="${(g2423||0)>=0?'positive':'negative'}">${g2423 !== null ? g2423.toFixed(0) + '%' : '—'}</td>`;
-    sh += `<td class="${(g2524||0)>=0?'positive':'negative'}">${g2524 !== null ? g2524.toFixed(0) + '%' : '—'}</td>`;
-    sh += `<td class="${diff>=0?'positive':'negative'}">${fmtK(diff)}</td>`;
-    sh += `<td class="${sum2y>=0?'positive':'negative'}">${fmtK(sum2y)}</td>`;
-    sh += '</tr>';
-  });
-  sh += '</tbody>';
-  document.getElementById('table-summary').innerHTML = sh;
 }
 
 // ============================================================
